@@ -173,8 +173,6 @@ module Positioning
         solidified_position -= 1 if in_positioning_scope? && position_was < solidified_position
 
         self.position = solidified_position
-
-        solidified_position
       end
 
       unless position.is_a? Integer
@@ -183,6 +181,8 @@ module Positioning
             %{before: (#{base_class.name}, #{primary_key_column}, nil, or ""), } +
             %{after: (#{base_class.name}, #{primary_key_column}, nil or ""), nil or ""}
       end
+
+      position
     end
 
     def last_position
