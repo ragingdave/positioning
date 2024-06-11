@@ -631,7 +631,7 @@ class TestPositioning < Minitest::Test
     reload_models
 
     assert @first_list.items.empty?
-    assert_equal @second_list.items, [@third_item, @fourth_item, @second_item, @fifth_item, @sixth_item, @first_item]
+    assert_equal [@third_item, @fourth_item, @second_item, @fifth_item, @sixth_item, @first_item], @second_list.items
     assert_equal [1, 2, 3, 4, 5, 6], [@third_item, @fourth_item, @second_item, @fifth_item, @sixth_item, @first_item].map(&:position)
   end
 
