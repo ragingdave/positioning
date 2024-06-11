@@ -1287,8 +1287,8 @@ class TestSTIPositioning < Minitest::Test
           other_positions.push other_positions.length + 1
 
           reload_models
-          assert_equal models, list.authors
-          assert_equal other_models, other_list.authors
+          assert_equal list.authors, models
+          assert_equal other_list.authors, other_models
           assert_equal positions, models.map(&:position)
           assert_equal other_positions, other_models.map(&:position)
 
