@@ -158,7 +158,7 @@ class TestPositioningMechanisms < Minitest::Test
 
     assert_equal 1, mechanisms.send(:position_was)
     assert mechanisms.instance_variable_defined? :@position_was
-    assert_equal 0, Author.where(id: student.id).pick(:position)
+    assert_equal 0, Author.where(id: student.id).limit(1).pluck(:position).first # .pick(:position)
   end
 
   def test_expand
@@ -624,6 +624,7 @@ class TestPositioning < Minitest::Test
   end
 
   def test_that_an_item_is_added_to_position_of_a_new_scope_when_explicitly_set
+    puts "THIS ONE"
     @second_item.update list: @second_list, position: 2 # NOTE: The same position it already had
     @third_item.update list: @second_list, position: 1
     @first_item.update list: @second_list, position: nil

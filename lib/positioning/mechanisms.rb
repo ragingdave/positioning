@@ -20,6 +20,9 @@ module Positioning
     end
 
     def update_position
+      puts "POS CHANGE: #{position_changed?}"
+      puts "PS CHANGE?: #{positioning_scope_changed?}"
+      puts @positioned.send(:changes)
       clear_position if positioning_scope_changed? && !position_changed?
 
       solidify_position
@@ -76,6 +79,7 @@ module Positioning
     end
 
     def clear_position
+      puts "CLEARED"
       self.position = nil
     end
 
@@ -84,7 +88,7 @@ module Positioning
     end
 
     def position_was
-      @position_was ||= record_scope.pick(@column)
+      @position_was ||= record_scope.limit(1).pluck(@column).first # .pick(@column)
     end
 
     def move_out_of_the_way
@@ -93,13 +97,29 @@ module Positioning
     end
 
     def expand(scope, range)
-      scope.where("#{@column}": range).update_all "#{quoted_column} = #{quoted_column} * -1"
-      scope.where("#{@column}": ..-1).update_all "#{quoted_column} = #{quoted_column} * -1 + 1"
+      # scope.where("#{@column}": range).update_all "#{quoted_column} = #{quoted_column} * -1"
+      # scope.where("#{@column}": ..-1).update_all "#{quoted_column} = #{quoted_column} * -1 + 1"
+
+      if range.end.nil? # This branch for rails < 6
+        scope.where("#{quoted_column} >= ?", range.begin).update_all "#{quoted_column} = #{quoted_column} * -1"
+      else
+        scope.where("#{@column}": range).update_all "#{quoted_column} = #{quoted_column} * -1"
+      end
+
+      scope.where("#{quoted_column} <= ?", -1).update_all "#{quoted_column} = #{quoted_column} * -1 + 1"
     end
 
     def contract(scope, range)
-      scope.where("#{@column}": range).update_all "#{quoted_column} = #{quoted_column} * -1"
-      scope.where("#{@column}": ..-1).update_all "#{quoted_column} = #{quoted_column} * -1 - 1"
+      # scope.where("#{@column}": range).update_all "#{quoted_column} = #{quoted_column} * -1"
+      # scope.where("#{@column}": ..-1).update_all "#{quoted_column} = #{quoted_column} * -1 - 1"
+
+      if range.end.nil? # This branch for rails < 6
+        scope.where("#{quoted_column} >= ?", range.begin).update_all "#{quoted_column} = #{quoted_column} * -1"
+      else
+        scope.where("#{@column}": range).update_all "#{quoted_column} = #{quoted_column} * -1"
+      end
+
+      scope.where("#{quoted_column} <= ?", -1).update_all "#{quoted_column} = #{quoted_column} * -1 - 1"
     end
 
     def solidify_position
@@ -120,10 +140,12 @@ module Positioning
 
       case position_before_type_cast
       when Integer
+        puts "INT"
         self.position = position_before_type_cast.clamp(1..last_position)
       when :first, {after: nil}, {after: ""}
         self.position = 1
       when nil, "", :last, {before: nil}, {before: ""}
+        puts "NIL"
         self.position = last_position
       when Hash
         relative_position, relative_record_or_primary_key = *position_before_type_cast.first
@@ -144,7 +166,7 @@ module Positioning
           raise Error.new, "relative `#{@column}` record must be in the same scope"
         end
 
-        solidified_position = relative_record_scope.pick(@column)
+        solidified_position = relative_record_scope.limit(1).pluck(@column).first # .pick(@column)
         solidified_position += 1 if relative_position == :after
         solidified_position -= 1 if in_positioning_scope? && position_was < solidified_position
 
