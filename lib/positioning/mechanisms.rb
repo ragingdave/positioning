@@ -25,7 +25,7 @@ module Positioning
       puts @positioned.send(:changes)
       clear_position if positioning_scope_changed? && !position_changed?
 
-      solidify_position
+      new_position = solidify_position
 
       if positioning_scope_changed? || position_changed?
         move_out_of_the_way
@@ -38,6 +38,8 @@ module Positioning
         else
           contract(positioning_scope, position_was..position)
         end
+
+        self.position = new_position
       end
     end
 
@@ -171,6 +173,8 @@ module Positioning
         solidified_position -= 1 if in_positioning_scope? && position_was < solidified_position
 
         self.position = solidified_position
+
+        self.position
       end
 
       unless position.is_a? Integer
