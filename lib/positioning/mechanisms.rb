@@ -174,7 +174,7 @@ module Positioning
 
         self.position = solidified_position
 
-        self.position
+        solidified_position
       end
 
       unless position.is_a? Integer
