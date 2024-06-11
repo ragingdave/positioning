@@ -38,6 +38,8 @@ module Positioning
         else
           contract(positioning_scope, position_was..position)
         end
+        # Rails 4.2 is dumb/too smart so we need to ensure the position is what it should be again
+        self.position = position_was
       end
       puts @positioned.send(:changes)
     end
