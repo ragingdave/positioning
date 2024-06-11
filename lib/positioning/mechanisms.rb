@@ -40,7 +40,7 @@ module Positioning
           contract(positioning_scope, position_was..position)
         end
         
-        @positioned.attribute_will_change!(@column) if changed_position # Rails 4.2 is dumb/too smart so we need to ensure the position is what it should be again
+        @positioned.send(:attribute_will_change!, @column) if changed_position # Rails 4.2 is dumb/too smart so we need to ensure the position is what it should be again
       end
       puts @positioned.send(:changes)
     end
