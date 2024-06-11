@@ -39,7 +39,7 @@ module Positioning
           contract(positioning_scope, position_was..position)
         end
 
-        self.position = new_position
+        self.position = " #{new_position}" # Ensure rails picks up on there being a change that needs to be propagated
       end
     end
 
