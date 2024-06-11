@@ -28,6 +28,7 @@ module Positioning
       solidify_position
 
       if positioning_scope_changed? || position_changed?
+        changed_position = position_changed? # Rails 4.2 is dumb/too smart so we need to ensure the position is what it should be again
         move_out_of_the_way
         puts @positioned.send(:changes)
         if positioning_scope_changed?
@@ -38,8 +39,8 @@ module Positioning
         else
           contract(positioning_scope, position_was..position)
         end
-        # Rails 4.2 is dumb/too smart so we need to ensure the position is what it should be again
-        self.position = position_was
+        
+        attribute_will_change!(@column) if changed_position # Rails 4.2 is dumb/too smart so we need to ensure the position is what it should be again
       end
       puts @positioned.send(:changes)
     end
