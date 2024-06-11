@@ -29,7 +29,7 @@ module Positioning
 
       if positioning_scope_changed? || position_changed?
         move_out_of_the_way
-
+        puts @positioned.send(:changes)
         if positioning_scope_changed?
           contract(positioning_scope_was, position_was..)
           expand(positioning_scope, position..)
@@ -39,6 +39,7 @@ module Positioning
           contract(positioning_scope, position_was..position)
         end
       end
+      puts @positioned.send(:changes)
     end
 
     def destroy_position
