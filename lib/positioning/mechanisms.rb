@@ -20,16 +20,13 @@ module Positioning
     end
 
     def update_position
-      puts "POS CHANGE: #{position_changed?}"
-      puts "PS CHANGE?: #{positioning_scope_changed?}"
-      puts @positioned.send(:changes)
       clear_position if positioning_scope_changed? && !position_changed?
 
       new_position = solidify_position
 
       if positioning_scope_changed? || position_changed?
         move_out_of_the_way
-        puts @positioned.send(:changes)
+
         if positioning_scope_changed?
           contract(positioning_scope_was, position_was..)
           expand(positioning_scope, position..)
@@ -81,7 +78,6 @@ module Positioning
     end
 
     def clear_position
-      puts "CLEARED"
       self.position = nil
     end
 
@@ -142,12 +138,10 @@ module Positioning
 
       case position_before_type_cast
       when Integer
-        puts "INT"
         self.position = position_before_type_cast.clamp(1..last_position)
       when :first, {after: nil}, {after: ""}
         self.position = 1
       when nil, "", :last, {before: nil}, {before: ""}
-        puts "NIL"
         self.position = last_position
       when Hash
         relative_position, relative_record_or_primary_key = *position_before_type_cast.first
