@@ -22,7 +22,7 @@ module Positioning
     def update_position
       clear_position if positioning_scope_changed? && !position_changed?
 
-      new_position = solidify_position
+      solidify_position
 
       if positioning_scope_changed? || position_changed?
         move_out_of_the_way
@@ -35,8 +35,6 @@ module Positioning
         else
           contract(positioning_scope, position_was..position)
         end
-
-        self.position = " #{new_position}" # Ensure rails picks up on there being a change that needs to be propagated
       end
     end
 
@@ -175,8 +173,6 @@ module Positioning
             %{before: (#{base_class.name}, #{primary_key_column}, nil, or ""), } +
             %{after: (#{base_class.name}, #{primary_key_column}, nil or ""), nil or ""}
       end
-
-      position
     end
 
     def last_position

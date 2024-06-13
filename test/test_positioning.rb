@@ -381,7 +381,7 @@ class TestPositioningMechanisms < Minitest::Test
     student = list.authors.create name: "Student", type: "Author::Student"
 
     mechanisms = Positioning::Mechanisms.new(student, :position)
-    assert_equal Author.where(list: list, enabled: true).to_sql, mechanisms.send(:positioning_scope).to_sql
+    assert_equal Author.where(list: list).where(enabled: true).to_sql, mechanisms.send(:positioning_scope).to_sql
   end
 
   def test_positioning_scope_was
@@ -392,9 +392,9 @@ class TestPositioningMechanisms < Minitest::Test
     mechanisms = Positioning::Mechanisms.new(student, :position)
     student.list = second_list
 
-    assert_equal Author.where(list: second_list, enabled: true).to_sql, mechanisms.send(:positioning_scope).to_sql
-
-    assert_equal Author.where(list: first_list, enabled: true).to_sql, mechanisms.send(:positioning_scope_was).to_sql
+    # order matters here and later rails order combined way the same as the scope
+    assert_equal Author.where(list: second_list).where(enabled: true).to_sql, mechanisms.send(:positioning_scope).to_sql
+    assert_equal Author.where(list: first_list).where(enabled: true).to_sql, mechanisms.send(:positioning_scope_was).to_sql
   end
 
   def test_in_positioning_scope?
@@ -1287,8 +1287,8 @@ class TestSTIPositioning < Minitest::Test
           other_positions.push other_positions.length + 1
 
           reload_models
-          assert_equal list.authors, models
-          assert_equal other_list.authors, other_models
+          assert_equal list.authors.to_a, models
+          assert_equal other_list.authors.to_a, other_models
           assert_equal positions, models.map(&:position)
           assert_equal other_positions, other_models.map(&:position)
 
@@ -1362,7 +1362,7 @@ class TestSTIPositioning < Minitest::Test
         [:before, :after].each do |relative_position|
           other_models.dup.zip(models.dup).flatten.each do |relative_model|
             model.update position: {"#{relative_position}": relative_model}, list: relative_model.list
-            list_changed = model.list_id_previously_changed?
+            list_changed = model.previous_changes.include?(:list_id) # .list_id_previously_changed?
 
             if model != relative_model
               models.delete_at models.index(model)
