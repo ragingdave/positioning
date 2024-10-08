@@ -2,6 +2,9 @@ require "test_helper"
 
 require_relative "models/list"
 require_relative "models/item"
+require_relative "models/new_item"
+require_relative "models/item_without_advisory_lock"
+require_relative "models/item_with_composite_primary_key"
 require_relative "models/category"
 require_relative "models/categorised_item"
 require_relative "models/author"
@@ -26,6 +29,17 @@ class TestRelativePositionStruct < Minitest::Test
 end
 
 class TestTransactionSafety < Minitest::Test
+  def test_advisory_lock_on_by_default
+    adapter = Positioning::AdvisoryLock::Adapter.new(initialise: -> {}, acquire: -> {}, release: -> {})
+
+    Positioning::AdvisoryLock.any_instance.expects(:adapter).returns(adapter).twice
+    Positioning::AdvisoryLock::Adapter.any_instance.expects(:acquire).returns(-> {}).once
+    Positioning::AdvisoryLock::Adapter.any_instance.expects(:release).returns(-> {}).once
+
+    list = List.create name: "List"
+    list.items.create name: "Item"
+  end
+
   def test_no_duplicate_row_values
     ActiveRecord::Base.connection_handler.clear_all_connections!
 
@@ -44,6 +58,92 @@ class TestTransactionSafety < Minitest::Test
     end
 
     assert_equal (1..students.length).to_a, list.authors.map(&:position)
+
+    list.destroy
+  end
+
+  def test_no_duplicate_row_values_when_advisory_lock_is_disabled_and_parent_record_is_locked
+    ActiveRecord::Base.connection_handler.clear_all_connections!
+    Positioning::AdvisoryLock.any_instance.expects(:adapter).never
+
+    list = List.create name: "List"
+    items = []
+
+    2.times do
+      threads = 3.times.map do
+        Thread.new do
+          ActiveRecord::Base.connection_pool.with_connection do
+            list.with_lock do
+              items << list.item_without_advisory_locks.create(name: "Item")
+            end
+          end
+        end
+      end
+      threads.each(&:join)
+    end
+
+    assert_equal (1..items.length).to_a, list.item_without_advisory_locks.map(&:position)
+
+    list.destroy
+  end
+
+  def test_no_duplicate_row_values_when_updating_and_advisory_lock_is_disabled_and_parent_record_is_locked
+    ActiveRecord::Base.connection_handler.clear_all_connections!
+    Positioning::AdvisoryLock.any_instance.expects(:adapter).never
+
+    list = List.create name: "List"
+    item_a = list.item_without_advisory_locks.create name: "Item A"
+    item_b = list.item_without_advisory_locks.create name: "Item B"
+    item_c = list.item_without_advisory_locks.create name: "Item C"
+
+    2.times do
+      threads = 3.times.map do
+        Thread.new do
+          ActiveRecord::Base.connection_pool.with_connection do
+            list.with_lock do
+              item_c.update(position: {before: item_a})
+            end
+          end
+        end
+      end
+      threads.each(&:join)
+    end
+
+    assert_equal item_c.reload.position, 1
+    assert_equal item_a.reload.position, 2
+    assert_equal item_b.reload.position, 3
+
+    list.destroy
+  end
+
+  def test_no_duplicate_row_values_when_destroying_and_advisory_lock_is_disabled_and_parent_record_is_locked
+    ActiveRecord::Base.connection_handler.clear_all_connections!
+    Positioning::AdvisoryLock.any_instance.expects(:adapter).never
+
+    list = List.create name: "List"
+    items = []
+    ["A", "B", "C", "D", "E", "F", "G", "H"].each do |name|
+      items << list.item_without_advisory_locks.create(name: name)
+    end
+
+    2.times do
+      threads = 3.times.map do
+        Thread.new do
+          ActiveRecord::Base.connection_pool.with_connection do
+            list.with_lock do
+              items.first.destroy
+              items.shift
+            end
+          end
+        end
+      end
+      threads.each(&:join)
+    end
+
+    items.each(&:reload)
+
+    assert_equal items.sort_by(&:position).pluck(:position, :name), [[1, "G"], [2, "H"]]
+    assert_equal list.item_without_advisory_locks.order(:position).pluck(:position, :name), [[1, "G"], [2, "H"]]
 
     list.destroy
   end
@@ -75,20 +175,12 @@ class TestPositioningMechanisms < Minitest::Test
     assert_equal Author, mechanisms.send(:base_class)
   end
 
-  def test_primary_key_column
-    list = List.create name: "List"
-    student = list.authors.create name: "Student", type: "Author::Student"
-
-    mechanisms = Positioning::Mechanisms.new(student, :position)
-    assert_equal "id", mechanisms.send(:primary_key_column)
-  end
-
   def test_primary_key
     list = List.create name: "List"
     student = list.authors.create name: "Student", type: "Author::Student"
 
     mechanisms = Positioning::Mechanisms.new(student, :position)
-    assert_equal student.id, mechanisms.send(:primary_key)
+    assert_equal "id", mechanisms.send(:primary_key)
   end
 
   def test_record_scope
@@ -569,15 +661,27 @@ class TestPositioning < Minitest::Test
     end
   end
 
+  def configure
+    @association = :items
+
+    @id = Enumerator.new do |yielder|
+      loop do
+        yielder.yield(nil)
+      end
+    end
+  end
+
   def setup
+    configure
+
     @first_list = List.create name: "First List"
     @second_list = List.create name: "Second List"
-    @first_item = @first_list.items.create name: "First Item"
-    @second_item = @first_list.items.create name: "Second Item"
-    @third_item = @first_list.items.create name: "Third Item"
-    @fourth_item = @second_list.items.create name: "Fourth Item"
-    @fifth_item = @second_list.items.create name: "Fifth Item"
-    @sixth_item = @second_list.items.create name: "Sixth Item"
+    @first_item = @first_list.send(@association).create id: @id.next, name: "First Item"
+    @second_item = @first_list.send(@association).create id: @id.next, name: "Second Item"
+    @third_item = @first_list.send(@association).create id: @id.next, name: "Third Item"
+    @fourth_item = @second_list.send(@association).create id: @id.next, name: "Fourth Item"
+    @fifth_item = @second_list.send(@association).create id: @id.next, name: "Fifth Item"
+    @sixth_item = @second_list.send(@association).create id: @id.next, name: "Sixth Item"
 
     @models = [
       @first_list, @second_list, @first_item, @second_item,
@@ -630,13 +734,13 @@ class TestPositioning < Minitest::Test
     @first_item.update list: @second_list, position: nil
     reload_models
 
-    assert @first_list.items.empty?
-    assert_equal [@third_item, @fourth_item, @second_item, @fifth_item, @sixth_item, @first_item], @second_list.items
+    assert @first_list.send(@association).empty?
+    assert_equal @second_list.send(@association), [@third_item, @fourth_item, @second_item, @fifth_item, @sixth_item, @first_item]
     assert_equal [1, 2, 3, 4, 5, 6], [@third_item, @fourth_item, @second_item, @fifth_item, @sixth_item, @first_item].map(&:position)
   end
 
   def test_that_position_is_assignable_on_create
-    seventh_item = @first_list.items.create name: "Seventh Item", position: 2
+    seventh_item = @first_list.send(@association).create id: @id.next, name: "Seventh Item", position: 2
     reload_models
 
     assert_equal [1, 2, 3, 4], [@first_item, seventh_item, @second_item, @third_item].map(&:position)
@@ -658,14 +762,14 @@ class TestPositioning < Minitest::Test
   end
 
   def test_that_item_position_is_clamped_up_to_1_on_create
-    seventh_item = @first_list.items.create name: "Seventh Item", position: 0
+    seventh_item = @first_list.send(@association).create id: @id.next, name: "Seventh Item", position: 0
     reload_models
 
     assert_equal [1, 2, 3, 4], [seventh_item, @first_item, @second_item, @third_item].map(&:position)
   end
 
   def test_that_item_position_is_clamped_down_to_max_plus_1_on_create
-    seventh_item = @first_list.items.create name: "Seventh Item", position: 100
+    seventh_item = @first_list.send(@association).create id: @id.next, name: "Seventh Item", position: 100
     reload_models
 
     assert_equal [1, 2, 3, 4], [@first_item, @second_item, @third_item, seventh_item].map(&:position)
@@ -702,7 +806,7 @@ class TestPositioning < Minitest::Test
   end
 
   def test_that_item_is_at_start_of_list_on_create_with_first
-    seventh_item = @first_list.items.create name: "Seventh Item", position: :first
+    seventh_item = @first_list.send(@association).create id: @id.next, name: "Seventh Item", position: :first
     reload_models
 
     assert_equal [1, 2, 3, 4], [seventh_item, @first_item, @second_item, @third_item].map(&:position)
@@ -716,7 +820,7 @@ class TestPositioning < Minitest::Test
   end
 
   def test_that_item_is_at_end_of_list_on_create_with_last
-    seventh_item = @first_list.items.create name: "Seventh Item", position: :last
+    seventh_item = @first_list.send(@association).create id: @id.next, name: "Seventh Item", position: :last
     reload_models
 
     assert_equal [1, 2, 3, 4], [@first_item, @second_item, @third_item, seventh_item].map(&:position)
@@ -730,7 +834,7 @@ class TestPositioning < Minitest::Test
   end
 
   def test_that_item_is_at_end_of_list_on_create_with_nil
-    seventh_item = @first_list.items.create name: "Seventh Item", position: nil
+    seventh_item = @first_list.send(@association).create id: @id.next, name: "Seventh Item", position: nil
     reload_models
 
     assert_equal [1, 2, 3, 4], [@first_item, @second_item, @third_item, seventh_item].map(&:position)
@@ -744,42 +848,42 @@ class TestPositioning < Minitest::Test
   end
 
   def test_that_items_are_moved_out_of_the_way_on_create_with_before
-    seventh_item = @first_list.items.create name: "Seventh Item", position: {before: @second_item}
+    seventh_item = @first_list.send(@association).create id: @id.next, name: "Seventh Item", position: {before: @second_item}
     reload_models
 
     assert_equal [1, 2, 3, 4], [@first_item, seventh_item, @second_item, @third_item].map(&:position)
   end
 
   def test_that_items_are_moved_out_of_the_way_on_create_with_before_id
-    seventh_item = @first_list.items.create name: "Seventh Item", position: {before: @second_item.id}
+    seventh_item = @first_list.send(@association).create id: @id.next, name: "Seventh Item", position: {before: @second_item.id}
     reload_models
 
     assert_equal [1, 2, 3, 4], [@first_item, seventh_item, @second_item, @third_item].map(&:position)
   end
 
   def test_that_items_are_moved_out_of_the_way_on_create_with_before_nil
-    seventh_item = @first_list.items.create name: "Seventh Item", position: {before: nil}
+    seventh_item = @first_list.send(@association).create id: @id.next, name: "Seventh Item", position: {before: nil}
     reload_models
 
     assert_equal [1, 2, 3, 4], [@first_item, @second_item, @third_item, seventh_item].map(&:position)
   end
 
   def test_that_items_are_moved_out_of_the_way_on_create_with_after
-    seventh_item = @first_list.items.create name: "Seventh Item", position: {after: @second_item}
+    seventh_item = @first_list.send(@association).create id: @id.next, name: "Seventh Item", position: {after: @second_item}
     reload_models
 
     assert_equal [1, 2, 3, 4], [@first_item, @second_item, seventh_item, @third_item].map(&:position)
   end
 
   def test_that_items_are_moved_out_of_the_way_on_create_with_after_id
-    seventh_item = @first_list.items.create name: "Seventh Item", position: {after: @second_item.id}
+    seventh_item = @first_list.send(@association).create id: @id.next, name: "Seventh Item", position: {after: @second_item.id}
     reload_models
 
     assert_equal [1, 2, 3, 4], [@first_item, @second_item, seventh_item, @third_item].map(&:position)
   end
 
   def test_that_items_are_moved_out_of_the_way_on_create_with_after_nil
-    seventh_item = @first_list.items.create name: "Seventh Item", position: {after: nil}
+    seventh_item = @first_list.send(@association).create id: @id.next, name: "Seventh Item", position: {after: nil}
     reload_models
 
     assert_equal [1, 2, 3, 4], [seventh_item, @first_item, @second_item, @third_item].map(&:position)
@@ -877,25 +981,25 @@ class TestPositioning < Minitest::Test
 
   def test_that_an_item_must_belong_to_the_scope_of_before_on_create
     assert_raises(Positioning::Error) do
-      @second_list.items.create name: "Seventh Item", position: {before: @second_item}
+      @second_list.send(@association).create id: @id.next, name: "Seventh Item", position: {before: @second_item}
     end
   end
 
   def test_that_an_item_id_must_belong_to_the_scope_of_before_on_create
     assert_raises(Positioning::Error) do
-      @second_list.items.create name: "Seventh Item", position: {before: @second_item.id}
+      @second_list.send(@association).create id: @id.next, name: "Seventh Item", position: {before: @second_item.id}
     end
   end
 
   def test_that_an_item_must_belong_to_the_scope_of_after_on_create
     assert_raises(Positioning::Error) do
-      @second_list.items.create name: "Seventh Item", position: {after: @first_item}
+      @second_list.send(@association).create id: @id.next, name: "Seventh Item", position: {after: @first_item}
     end
   end
 
   def test_that_an_item_id_must_belong_to_the_scope_of_after_on_create
     assert_raises(Positioning::Error) do
-      @second_list.items.create name: "Seventh Item", position: {after: @first_item.id}
+      @second_list.send(@association).create id: @id.next, name: "Seventh Item", position: {after: @first_item.id}
     end
   end
 
@@ -925,7 +1029,7 @@ class TestPositioning < Minitest::Test
 
   def test_that_an_error_is_raised_with_invalid_relative_key
     assert_raises(Positioning::Error) do
-      @first_list.items.create name: "Seventh Item", position: {wrong: @second_item.id}
+      @first_list.send(@association).create id: @id.next, name: "Seventh Item", position: {wrong: @second_item.id}
     end
 
     assert_raises(Positioning::Error) do
@@ -935,7 +1039,7 @@ class TestPositioning < Minitest::Test
 
   def test_that_an_error_is_raised_with_invalid_position
     assert_raises(Positioning::Error) do
-      @first_list.items.create name: "Seventh Item", position: :other
+      @first_list.send(@association).create id: @id.next, name: "Seventh Item", position: :other
     end
 
     assert_raises(Positioning::Error) do
@@ -944,10 +1048,26 @@ class TestPositioning < Minitest::Test
   end
 
   def test_destroying_multiple_items
-    @first_list.items.limit(2).destroy_all
+    @first_list.send(@association).limit(2).destroy_all
     @third_item.reload
 
     assert_equal 1, @third_item.position
+  end
+end
+
+class TestCompositePrimaryKeyPositioning < TestPositioning
+  def configure
+    skip if ActiveRecord.version < Gem::Version.new("7.1.0")
+
+    @association = :item_with_composite_primary_keys
+    @id = Enumerator.new do |yielder|
+      number = 1
+
+      loop do
+        yielder.yield([number, number])
+        number += 1
+      end
+    end
   end
 end
 
@@ -1287,8 +1407,8 @@ class TestSTIPositioning < Minitest::Test
           other_positions.push other_positions.length + 1
 
           reload_models
-          assert_equal list.authors.to_a, models
-          assert_equal other_list.authors.to_a, other_models
+          assert_equal list.authors, models # TODO: if broken, add to_a for older rails
+          assert_equal other_list.authors, other_models  # TODO: if broken, add to_a for older rails
           assert_equal positions, models.map(&:position)
           assert_equal other_positions, other_models.map(&:position)
 
@@ -1486,6 +1606,99 @@ class TestSTIPositioning < Minitest::Test
         assert_equal list.authors, models
         assert_equal positions, models.map(&:position)
       end
+    end
+  end
+end
+
+class TestInitialisation < Minitest::Test
+  include Minitest::Hooks
+
+  def around
+    ActiveRecord::Base.transaction do
+      super
+      raise ActiveRecord::Rollback
+    end
+  end
+
+  def test_heal_position
+    first_list = List.create name: "First List"
+    second_list = List.create name: "Second List"
+
+    first_item = first_list.new_items.create name: "First Item"
+    second_item = first_list.new_items.create name: "Second Item"
+    third_item = first_list.new_items.create name: "Third Item"
+
+    fourth_item = second_list.new_items.create name: "Fourth Item"
+    fifth_item = second_list.new_items.create name: "Fifth Item"
+    sixth_item = second_list.new_items.create name: "Sixth Item"
+
+    first_item.update_columns position: 9
+    second_item.update_columns position: nil
+    third_item.update_columns position: -42
+
+    fourth_item.update_columns position: 0
+    fifth_item.update_columns position: 998
+    sixth_item.update_columns position: 800
+
+    NewItem.heal_position_column!
+
+    if ENV["DB"] == "postgresql"
+      assert_equal [1, 2, 3], [third_item.reload, first_item.reload, second_item.reload].map(&:position)
+    else
+      assert_equal [1, 2, 3], [second_item.reload, third_item.reload, first_item.reload].map(&:position)
+    end
+
+    assert_equal [1, 2, 3], [fourth_item.reload, sixth_item.reload, fifth_item.reload].map(&:position)
+
+    NewItem.heal_position_column! name: :desc
+
+    assert_equal [1, 2, 3], [third_item.reload, second_item.reload, first_item.reload].map(&:position)
+    assert_equal [1, 2, 3], [sixth_item.reload, fourth_item.reload, fifth_item.reload].map(&:position)
+  end
+
+  def test_heal_position_with_no_scope
+    first_category = Category.create name: "First Category"
+    second_category = Category.create name: "Second Category"
+    third_category = Category.create name: "Third Category"
+
+    first_category.update_columns position: 9
+    second_category.update_columns position: 0
+    third_category.update_columns position: -42
+
+    Category.heal_position_column!
+
+    assert_equal [1, 2, 3], [third_category.reload, second_category.reload, first_category.reload].map(&:position)
+  end
+
+  def test_advisory_lock_on_by_default
+    adapter = Positioning::AdvisoryLock::Adapter.new(initialise: -> {}, acquire: -> {}, release: -> {})
+
+    Positioning::AdvisoryLock.any_instance.expects(:adapter).returns(adapter).twice
+    Positioning::AdvisoryLock::Adapter.any_instance.expects(:acquire).returns(-> {}).once
+    Positioning::AdvisoryLock::Adapter.any_instance.expects(:release).returns(-> {}).once
+
+    NewItem.heal_position_column!
+  end
+
+  def test_heal_position_without_advisory_lock
+    first_list = List.create name: "First List"
+
+    first_item = first_list.new_items.create name: "First Item"
+    second_item = first_list.new_items.create name: "Second Item"
+    third_item = first_list.new_items.create name: "Third Item"
+
+    first_item.update_columns other_position: 9
+    second_item.update_columns other_position: nil
+    third_item.update_columns other_position: -42
+
+    Positioning::AdvisoryLock.any_instance.expects(:adapter).never
+
+    NewItem.heal_other_position_column!
+
+    if ENV["DB"] == "postgresql"
+      assert_equal [1, 2, 3], [third_item.reload, first_item.reload, second_item.reload].map(&:other_position)
+    else
+      assert_equal [1, 2, 3], [second_item.reload, third_item.reload, first_item.reload].map(&:other_position)
     end
   end
 end

@@ -1,6 +1,7 @@
 require_relative "positioning/version"
 require_relative "positioning/advisory_lock"
 require_relative "positioning/mechanisms"
+require_relative "positioning/healer"
 
 require "active_support/concern"
 require "active_support/lazy_load_hooks"
@@ -18,7 +19,7 @@ module Positioning
         @positioning_columns ||= {}
       end
 
-      def positioned(on: [], column: :position)
+      def positioned(on: [], column: :position, advisory_lock: true)
         unless base_class == self # rails 6+ unless base_class?
           raise Error.new "can't be called on an abstract class or STI subclass."
         end
@@ -44,18 +45,24 @@ module Positioning
             send :"#{column}_will_change!"
           end
 
-          advisory_lock = AdvisoryLock.new(base_class, column)
+          advisory_locker = AdvisoryLock.new(base_class, column, advisory_lock)
 
-          before_create advisory_lock
-          before_update advisory_lock
-          before_destroy advisory_lock
+          before_create { advisory_locker.acquire }
+          before_update { advisory_locker.acquire }
+          before_destroy { advisory_locker.acquire }
 
           before_create { Mechanisms.new(self, column).create_position }
           before_update { Mechanisms.new(self, column).update_position }
           before_destroy { Mechanisms.new(self, column).destroy_position }
 
-          after_commit advisory_lock
-          after_rollback advisory_lock
+          after_commit { advisory_locker.release }
+          after_rollback { advisory_locker.release }
+
+          define_singleton_method(:"heal_#{column}_column!") do |order = column|
+            advisory_locker.acquire do
+              Healer.new(self, column, order).heal
+            end
+          end
         end
       end
     end

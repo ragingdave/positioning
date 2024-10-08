@@ -66,7 +66,41 @@ positioned on: :type
 belongs_to :list
 belongs_to :category
 positioned on: [:list, :category, :enabled]
+
+# If you do not want to use Advisory Lock, you can disable it entirely by passing the 'advisory_lock' flag as false
+belongs_to :list
+positioned on: :list, advisory_lock: false
 ```
+
+### Initialising a List
+
+If you are adding `positioning` to a model with existing database records, or you're migrating from another gem like `acts_as_list` or `ranked-model` and have an existing position column, you will need to do some work to ensure you have well formed position values for your records. `positioning` has a helper method per `positioned` declaration that allows you to 'heal' the position column, ensuring that positions are positive integers starting at 1 with no gaps.
+
+For example, in the usual case:
+
+```
+belongs_to :list
+positioned on: :list
+```
+
+you'll have a method called `heal_position_column!`. You can call this method and it will cycle through every existing scope combination in your database (every list with items in this case) and reset those items' position based on their current position order by default. You can pass in a custom order if you don't trust (or don't have) an existing order column. The custom order is passed through to the Active Record `reorder` method, so you can provide anything that that method accepts:
+
+```
+Item.heal_position_column! name: :desc
+```
+
+You may need to introduce your database constraints after healing your position column:
+
+* We recommend a `null: false` constraint on the position column but if your existing column has `NULL` values, you'll need to fix those first. The heal method will heal `NULL` positions but depending on your database engine `NULL` positioned items might be placed at the start of the returned records or at the end (if positioning on the position column). Some databases allow this behaviour to be customised.
+* We also recommend a unique index on the scope columns and the position column. If you have repeated position integers per scope you'll need to use the heal method to fix these first before applying the unique index in a separate migration step.
+
+The heal method name is named after the column used to store position values. By default this is `position` but if you override it then the method name will change:
+
+```
+positioned on: :category, column: :category_position
+```
+
+will have a class method named `heal_category_position_column!`.
 
 ### Manipulating Positioning
 
@@ -242,6 +276,33 @@ You're encouraged to review the Advisory Lock code to ensure it fits with your e
 https://github.com/brendon/positioning/blob/main/lib/positioning/advisory_lock.rb
 
 If you have any concerns or improvements please file a GitHub issue.
+
+### Opting out of Advisory Lock
+
+There are cases where Advisory Lock may be unwanted or unnecessary, for instance, if you already lock the parent record in **every** operation that will touch the database on the positioned item, **everywhere** in your application.
+
+Example of such scenario in your application:
+
+```ruby
+list = List.create(name: "List")
+
+list.with_lock do
+  item_a = list.items.create(name: "Item A")
+  item_b = list.items.create(name: "Item B")
+  item_c = list.items.create(name: "Item C")
+
+  item_c.update(position: {before: item_a})
+
+  item_a.destroy
+end
+```
+
+Therefore, making sure you already have another mechanism to avoid race conditions, you can opt out of Advisory Lock by setting `advisory_lock` to `false` when declaring positioning:
+
+```ruby
+belongs_to :list
+positioned on: :list, advisory_lock: false
+```
 
 ## Development
 
