@@ -79,7 +79,7 @@ module Positioning
     end
 
     def position_was
-      @position_was ||= record_scope.pick(@column)
+      @position_was ||= record_scope.limit(1).pluck(@column).first # .pick(@column)
     end
 
     def move_out_of_the_way
@@ -88,13 +88,29 @@ module Positioning
     end
 
     def expand(scope, range)
-      scope.where(@column => range).update_all "#{quoted_column} = #{quoted_column} * -1"
-      scope.where(@column => ..-1).update_all "#{quoted_column} = #{quoted_column} * -1 + 1"
+      # scope.where("#{@column}": range).update_all "#{quoted_column} = #{quoted_column} * -1"
+      # scope.where("#{@column}": ..-1).update_all "#{quoted_column} = #{quoted_column} * -1 + 1"
+
+      if range.end.nil? # This branch for rails < 6
+        scope.where("#{quoted_column} >= ?", range.begin).update_all "#{quoted_column} = #{quoted_column} * -1"
+      else
+        scope.where("#{@column}": range).update_all "#{quoted_column} = #{quoted_column} * -1"
+      end
+
+      scope.where("#{quoted_column} <= ?", -1).update_all "#{quoted_column} = #{quoted_column} * -1 + 1"
     end
 
     def contract(scope, range)
-      scope.where(@column => range).update_all "#{quoted_column} = #{quoted_column} * -1"
-      scope.where(@column => ..-1).update_all "#{quoted_column} = #{quoted_column} * -1 - 1"
+      # scope.where("#{@column}": range).update_all "#{quoted_column} = #{quoted_column} * -1"
+      # scope.where("#{@column}": ..-1).update_all "#{quoted_column} = #{quoted_column} * -1 - 1"
+
+      if range.end.nil? # This branch for rails < 6
+        scope.where("#{quoted_column} >= ?", range.begin).update_all "#{quoted_column} = #{quoted_column} * -1"
+      else
+        scope.where("#{@column}": range).update_all "#{quoted_column} = #{quoted_column} * -1"
+      end
+
+      scope.where("#{quoted_column} <= ?", -1).update_all "#{quoted_column} = #{quoted_column} * -1 - 1"
     end
 
     def solidify_position
@@ -139,7 +155,7 @@ module Positioning
           raise Error.new, "relative `#{@column}` record must be in the same scope"
         end
 
-        solidified_position = relative_record_scope.pick(@column)
+        solidified_position = relative_record_scope.limit(1).pluck(@column).first # .pick(@column)
         solidified_position += 1 if relative_position == :after
         solidified_position -= 1 if in_positioning_scope? && position_was < solidified_position
 
