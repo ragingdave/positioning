@@ -103,8 +103,8 @@ class TestTransactionSafety < Minitest::Test
 
     students.each(&:reload)
 
-    assert_equal [[1, "G"], [2, "H"]], students.sort_by(&:position).pluck(:position, :name)
-    assert_equal [[1, "G"], [2, "H"]], list.authors.order(:position).pluck(:position, :name)
+    assert_equal [[1, "G"], [2, "H"]], students.sort_by(&:position).map { |s| [s.position, s.name] } # Used map instead of pluck here to enable compatibility.
+    assert_equal [[1, "G"], [2, "H"]], list.authors.order(:position).map { |s| [s.position, s.name] } # Used map instead of pluck here to enable compatibility.
 
     list.destroy
   end
