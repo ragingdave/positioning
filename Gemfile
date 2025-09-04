@@ -25,7 +25,7 @@ when "sqlite"
     gem "sqlite3", "~> 1.7.2"
   end
 when "postgresql"
-  gem "pg", "~> 1.5.5"
+  gem "pg", "< 1.0" # Decreased to enable compatibility
 else
   gem "mysql2", "~> 0.5.6"
 end

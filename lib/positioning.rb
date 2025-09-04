@@ -19,7 +19,7 @@ module Positioning
       end
 
       def positioned(on: [], column: :position)
-        unless base_class?
+        unless base_class == self # rails 6+ unless base_class?
           raise Error.new "can't be called on an abstract class or STI subclass."
         end
 
@@ -47,8 +47,9 @@ module Positioning
           define_method(:"subsequent_#{column}") { Mechanisms.new(self, column).subsequent }
 
           redefine_method(:"#{column}=") do |position|
-            send :"#{column}_will_change!"
+            # Flipped order here to make rails 4 happy
             super(position)
+            send :"#{column}_will_change!"
           end
 
           before_create { Mechanisms.new(self, column).create_position }

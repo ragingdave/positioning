@@ -8,7 +8,8 @@ module Positioning
 
     def heal
       if scope_columns.present?
-        @model.unscope(:order).reselect(*scope_columns).distinct.each do |scope_record|
+        # Using unscope(:select).select instead of reselect here to enable compatibility
+        @model.unscope(:order).unscope(:select).select(*scope_columns).distinct.each do |scope_record|
           @model.transaction do
             if scope_associations.present?
               scope_associations.each do |scope_association|
