@@ -1,3 +1,4 @@
+require "logger"
 require "active_record"
 
 ENV["DB"] = "mysql" unless ENV["DB"]
@@ -12,6 +13,14 @@ ActiveRecord::Migration.suppress_messages do
     create_table :lists, force: true do |t|
       t.string :name
     end
+
+    create_table :entities, force: true do |t|
+      t.string :name
+      t.integer :position, null: false
+      t.references :includable, polymorphic: true
+    end
+
+    add_index :entities, [:includable_id, :includable_type, :position], unique: true, name: "index_entities_on_includable_and_position"
 
     create_table :items, force: true do |t|
       t.string :name
@@ -28,15 +37,15 @@ ActiveRecord::Migration.suppress_messages do
       t.references :list, null: false
     end
 
-    create_table :item_without_advisory_locks, force: true do |t|
+    create_table :default_scope_items, force: true do |t|
       t.string :name
       t.integer :position, null: false
       t.references :list, null: false
     end
 
-    add_index :item_without_advisory_locks, [:list_id, :position], unique: true
+    add_index :default_scope_items, [:list_id, :position], unique: true
 
-    create_table :item_with_composite_primary_keys, primary_key: [:item_id, :account_id], force: true do |t|
+    create_table :composite_primary_key_items, primary_key: [:item_id, :account_id], force: true do |t|
       t.integer :item_id, null: false
       t.integer :account_id, null: false
       t.string :name
@@ -44,14 +53,22 @@ ActiveRecord::Migration.suppress_messages do
       t.references :list, null: false
     end
 
-    add_index :item_with_composite_primary_keys, [:list_id, :position], unique: true
+    add_index :composite_primary_key_items, [:list_id, :position], unique: true
 
     create_table :categories, force: true do |t|
       t.string :name
       t.integer :position, null: false
+      t.references :parent
     end
 
-    add_index :categories, :position, unique: true
+    add_index :categories, [:parent_id, :position], unique: true
+
+    create_table :products, force: true do |t|
+      t.string :name
+      t.integer :position, null: false
+    end
+
+    add_index :products, :position, unique: true
 
     create_table :categorised_items, force: true do |t|
       t.string :name
@@ -74,11 +91,22 @@ ActiveRecord::Migration.suppress_messages do
 
     add_index :authors, [:list_id, :enabled, :position], unique: true
 
+    create_table :blogs, force: true do |t|
+      t.string :name
+      t.boolean :enabled, default: true
+      t.integer :position, null: false
+    end
+
+    add_index :blogs, [:position, :enabled], unique: true
+
     create_table :posts, force: true do |t|
       t.string :name
       t.integer :order, null: false
+      t.integer :position, null: false
+      t.references :blog
     end
 
+    add_index :posts, [:blog_id, :position], unique: true
     add_index :posts, :order, unique: true
   end
 end
